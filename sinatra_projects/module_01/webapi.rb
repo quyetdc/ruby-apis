@@ -1,5 +1,9 @@
 # README
 # simple curl test
+#
+# To Start server
+  # ruby webapi.rb
+#
 # curl -i http://localhost:4567/users/thibault \
 #      -H "Accept: application/xml"
 #
@@ -28,6 +32,9 @@ helpers do
     type.to_s == 'application/xml'
   end
 
+
+  # curl -i http://localhost:4567/users -H "Accept: moar/curl"
+
   def accepted_media_type
     return 'json' unless request.accept.any?
 
@@ -36,7 +43,10 @@ helpers do
       return 'xml' if xml?(mt)
     end
 
-    halt 406, 'Not Acceptable'
+    content_type 'text/plain'
+    halt 406, 'application/json, application/xml'
+
+    # halt 406, 'Not Acceptable'
   end
 
   def type
@@ -55,6 +65,8 @@ helpers do
 
 end
 
+
+
 get '/' do
   'Master Ruby Web APIs - Chapter 2'
 end
@@ -64,7 +76,13 @@ get '/users' do
             xml:  -> { { users: users } })
 end
 
+
+# TODO handle 410 GONE
 get '/users/:first_name' do |first_name|
+  unless users[first_name.to_sym]
+    halt 404, send_data(json: -> { { message: "User not found" }}, xml: -> { { message: "User not found" }} )
+  end
+
   send_data(json: -> { users[first_name.to_sym].merge(id: first_name) },
             xml:  -> { { first_name => users[first_name.to_sym] } })
 end
@@ -76,11 +94,37 @@ head '/users' do
 end
 
 
+
+
 # curl POST -v http://localhost:4567/users \
 #      -H "Content-Type: application/json" \
 #      -d '{"first_name":"Samuel","last_name":"Da Costa","age":19}'
+#
+# curl -X POST -i http://localhost:4567/users \
+#      -H "Content-Type: application/json" \
+#      -d '{"first_name":"Thibault", "last_name":"Denizet", "age":25}'
 post '/users' do
-  user = JSON.parse(request.body.read)
+
+  halt 415 unless request.env['CONTENT_TYPE'] == 'application/json'
+
+  begin
+    user = JSON.parse(request.body.read)
+  rescue JSON::ParserError => e
+    halt 400, send_data(
+                json: -> { { message: e.to_s } },
+                xml:  -> { { message: e.to_s } }
+              )
+  end
+
+  if users[user['first_name'].downcase.to_sym]
+    message = "User #{user['first_name']} is already existed in database"
+
+    halt 409, send_data(
+                json: -> { { message: message }},
+                xml: -> { { message: message }}
+    )
+  end
+
   users[user['first_name'].downcase.to_sym] = user
 
   url = "http://localhost:4567/users/#{user['first_name']}"
@@ -90,6 +134,7 @@ post '/users' do
 end
 
 
+# TODO handle 415 Unsupported Media Type and 400 Bad Request
 # curl -X PUT -v http://localhost:4567/users/jane \
 #      -H "Content-Type: application/json" \
 #      -d '{"first_name":"Jane","last_name":"Smiht","age":24}'
@@ -101,6 +146,8 @@ put '/users/:first_name' do |first_name|
 end
 
 
+
+# TODO: handle 415 Unsupported Media Type, 404 Not Found, 410 Gone and 400 Bad Request
 # curl -X PATCH -v http://localhost:4567/users/thibault \
 #      -H "Content-Type: application/json" \
 #      -d '{"age":26}'
@@ -124,6 +171,14 @@ end
 delete '/users/:first_name' do |first_name|
   users.delete(first_name.to_sym)
   status 204
+end
+
+
+# curl -X PATCH -v http://localhost:4567/users
+[:put, :patch, :delete].each do |method|
+  send(method, '/users') do
+    halt 405
+  end
 end
 
 # curl -v -X OPTIONS http://localhost:4567/users
